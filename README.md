@@ -1,3 +1,116 @@
+## Termux Storage Best Practices (for your 13.5 GB FUSE volume)
+
+### 1. Know what you're actually managing
+
+| Layer | Path | What lives here | Your size |
+|-------|------|----------------|-----------|
+| Termux prefix | `$PREFIX` (`/data/data/com.termux/files/usr`) | Packages, binaries, libs | 887M |
+| Home | `$HOME` (`/data/data/com.termux/files/home`) | Your projects, scripts, caches | ~1.7 GB |
+| Shared storage (FUSE) | `/storage/emulated` | All apps + media + your home | **13.5 GB (99% full)** |
+
+Your home is on the same block device as everything else. Freeing space in `~` directly helps the 13.5 GB volume.
+
+---
+
+### 2. Immediate space reclamation (one-time)
+
+```bash
+# Package cache (safe, regenerates)
+pkg clean
+apt autoremove -y
+
+# User caches (safe, regenerates)
+rm -rf ~/.npm ~/.cache ~/.pytest_cache
+
+# node_modules (safe, reinstall with npm install)
+rm -rf ~/tech-ref-portal/node_modules
+
+# Duplicates and one-off artifacts
+rm -f ~/rss-automator/ez_gemini_gems_to_skills/Active_Projects/Python.zip
+rm -f ~/ez_gemini_gems_to_skills/Active_Projects/Python.zip
+rm -f ~/ctx_report_*.txt ~/env_audit_*.txt ~/deployment_20261105_*.log
+rm -f ~/pixel-terminal-master.*.tgz ~/pixel_diagnostic_*.txt
+rm -f ~/keystone_fix*.txt ~/keystone_verify*.txt ~/keystone_triage*.txt
+rm -f ~/50% ~/Bootstrapping ~/Environment ~/FETCH_HEAD ~/.coverage ~/.python_history
+rm -rf ~/.git-accidental-backup
+```
+
+**~310 MB freed.**
+
+---
+
+### 3. Ongoing maintenance (weekly/monthly)
+
+```bash
+# Weekly: package cache
+pkg clean
+
+# Monthly: find what's grown
+du -sh ~/* 2>/dev/null | sort -rh | head -20
+
+# Monthly: purge old Python bytecode
+find ~ -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
+
+# Monthly: npm cache if you use npm
+rm -rf ~/.npm/_cacache
+```
+
+---
+
+### 4. Architectural habits that prevent recurrence
+
+| Habit | Why |
+|-------|-----|
+| **Keep builds in `$HOME`, not `~/storage/`** | FUSE has I/O overhead; private storage is faster and doesn't compete with media |
+| **Don't `git clone` large repos into `~`** | Use `--depth 1` (shallow) or move to external SD via `~/storage/external-1` if available |
+| **Archive and push, then delete locally** | Your `home_audit.py --stage --push` workflow is exactly this — push to GitHub, then `rm -rf ~/home-archive-staging` |
+| **Use `pip install --target` or venvs in `/tmp`** | Avoids bloating `~/.local/lib` |
+| **Monitor with a cron alert** | See below |
+
+---
+
+### 5. Disk monitor (set up once)
+
+```bash
+# Install cronie if not present
+pkg install cronie
+crontab -e
+```
+
+Add:
+
+```cron
+0 6 * * * free=$(df --output=avail /storage/emulated | tail -1 | tr -d ' '); [ "$free" -lt 200000 ] && termux-notification -t "Disk Low" -c "Only $((free/1024)) MB free"
+```
+
+This alerts you at ~200 MB remaining — well before you hit 0.
+
+---
+
+### 6. What to do about the other ~11.6 GB
+
+Your home is only 1.7 GB. The other ~11.6 GB on the FUSE volume is **other apps, media, and system data** that you can't manage from Termux. To free that:
+
+- **Android Settings → Storage** — identify and delete large apps/media
+- **Move media to external SD** (if your device supports it)
+- **Use a file manager** (e.g., Material Files) to browse `/storage/emulated` and clean up
+
+Termux can't fix a device that's 99% full because of 10 GB of videos and 3 GB of WhatsApp.
+
+---
+
+### 7. Nuclear option: move Termux to external storage
+
+If you have an adoptable SD card or a large external SD:
+
+```bash
+# Settings → Developer Options → Force allow apps on external
+# Move Termux to SD card (via Android Settings → Apps → Termux → Storage)
+```
+
+This moves the entire `/data/data/com.termux` tree off the internal FUSE volume, freeing several GB. Tradeoff: slightly slower I/O on some devices.
+
+
 import asyncio
 import json
 import logging
